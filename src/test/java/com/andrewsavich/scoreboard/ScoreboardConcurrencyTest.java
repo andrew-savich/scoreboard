@@ -92,12 +92,12 @@ class ScoreboardConcurrencyTest {
                     if (i % 2 == 0) {
                         try {
                             scoreboard.updateScore(id, i, i);
-                        } catch (IllegalStateException alreadyFinishedByAnotherThread) {
+                        } catch (IllegalStateException ignored) {
                         }
                     } else {
                         try {
                             scoreboard.finishMatch(id);
-                        } catch (IllegalStateException alreadyFinishedByAnotherThread) {
+                        } catch (IllegalStateException ignored) {
                         }
                     }
                 }
@@ -135,6 +135,42 @@ class ScoreboardConcurrencyTest {
         assertThat(scoreboard.summary()).hasSize(threads * matchesPerThread);
     }
 
+    @Test
+    void concurrentGetMatchSeesOnlyConsistentSnapshots() throws InterruptedException {
+        int matchCount = 16;
+        int writers = 8;
+        int readers = 4;
+        int operationsPerThread = 200;
+        List<UUID> ids = new CopyOnWriteArrayList<>();
+        AtomicInteger writes = new AtomicInteger();
+
+        for (int i = 0; i < matchCount; i++) {
+            Match match = scoreboard.startMatch("Home" + i, "Away" + i);
+            scoreboard.updateScore(match.id(), 2, 3);
+            ids.add(match.id());
+        }
+
+        runConcurrently(writers + readers, index -> {
+            if (index < writers) {
+                for (int i = 0; i < operationsPerThread; i++) {
+                    int value = writes.incrementAndGet();
+                    scoreboard.updateScore(ids.get(ThreadLocalRandom.current().nextInt(ids.size())),
+                                           2 * value, 2 * value + 1);
+                }
+            } else {
+                for (int i = 0; i < operationsPerThread; i++) {
+                    UUID id = ids.get(ThreadLocalRandom.current().nextInt(ids.size()));
+                    Match found = scoreboard.getMatch(id).orElseThrow();
+
+                    assertThat(found.id()).isEqualTo(id);
+                    assertThat(found.awayScore()).isEqualTo(found.homeScore() + 1);
+                }
+            }
+        });
+
+        assertThat(exceptions).isEmpty();
+        assertThat(writes).hasValue(writers * operationsPerThread);
+    }
     private void runConcurrently(int threadCount, IntConsumer task) throws InterruptedException {
         CountDownLatch startGate = new CountDownLatch(1);
         CountDownLatch done = new CountDownLatch(threadCount);

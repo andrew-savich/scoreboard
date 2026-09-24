@@ -580,6 +580,11 @@ This section documents the exact, chronological prompting history and execution 
 
 ---
 
----
+
+## 4. Custom Operation: `getMatch(UUID id)`
+
+* **Goal:** Added $O(1)$ lookup for active matches returning `Optional<Match>`.
+* **AI Decisions:** Enforced `NullPointerException` for `null` IDs to maintain API consistency with `updateScore`/`finishMatch`.
+* **Workflow:** Executed via TDD (Red → Green) with `ReentrantReadWriteLock` read lock protection. All 43 tests pass.
 
  

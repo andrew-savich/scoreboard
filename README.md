@@ -8,9 +8,26 @@ Lightweight, thread-safe, in-memory Java 21 library for tracking live football s
 
 The library exposes a clean interface `Scoreboard` and an immutable value object `Match`.
 
-* **`Scoreboard` (Interface):** Defines the API contract (`startMatch`, `updateScore`, `finishMatch`, `summary`). Kept separate from the concrete implementation (`InMemoryScoreboard`) to decouple the caller from internal implementation details and simplify mocking in unit tests.
+* **`Scoreboard` (Interface):** Defines the API contract (`startMatch`, `updateScore`, `finishMatch`, `getMatch`, `summary`). Kept separate from the concrete implementation (`InMemoryScoreboard`) to decouple the caller from internal implementation details and simplify mocking in unit tests.
 * **`InMemoryScoreboard` (Implementation):** In-memory state management guarded by a `ReentrantReadWriteLock`.
 * **`Match` (Record):** Immutable snapshot of a match at a specific point in time.
+* **`Scoreboard.getMatch(UUID)`:** Point-in-time lookup of a single active match returning `Optional<Match>` — empty when the identifier was never started or its match has already been finished. Implemented as a constant-time-average map lookup under the read lock, so clients no longer need to fetch and filter the whole `summary()`.
+
+---
+
+## Custom Operation: `getMatch(UUID id)`
+
+### Description
+In addition to the 4 core operations, the library provides a `getMatch(UUID id)` method that returns an `Optional<Match>`.
+
+* **Signature:** `Optional<Match> getMatch(UUID id)`
+* **Behavior:** Returns an `Optional` containing an immutable snapshot of the active match if found. Returns `Optional.empty()` if the match never existed or has already been finished.
+* **Validation:** Throws `NullPointerException` if `id` is `null`.
+
+### Why This Feature Was Chosen
+1. **Targeted Lookup Efficiency:** In real-world sports applications (e.g., match details screens, polling APIs, or live notifications), clients often need to query the current status of a single match. Requiring callers to fetch and filter the entire `summary()` list is inefficient and puts unnecessary load on memory allocation.
+2. **$O(1)$ Performance:** By leveraging `HashMap` lookups under a `readLock`, `getMatch` provides point-in-time snapshot retrieval in constant average time $O(1)$ without blocking concurrent writers or other readers.
+3. **Explicit Domain Modeling & Null Safety:** Returning `Optional<Match>` explicitly communicates to the API consumer that a match might not be active (either not started or already finished), preventing `NullPointerException` errors on the caller side.
 
 ---
 
@@ -28,7 +45,7 @@ The library exposes a clean interface `Scoreboard` and an immutable value object
 ### 1. Lock-Free Sorting Strategy
 `InMemoryScoreboard` uses a `ReentrantReadWriteLock` to balance safety and performance:
 * **Mutations (`startMatch`, `updateScore`, `finishMatch`):** Executed under `writeLock` to guarantee atomic state updates and gapless sequence generation.
-* **Reads (`summary`):** Under `readLock`, a defensive copy of the active matches is extracted into a list. The `readLock` is released **immediately** after copying. Sorting ($O(N \log N)$) and wrapping into `List.copyOf` happen outside the lock. This keeps sorting from blocking incoming write operations.
+* **Reads (`summary`, `getMatch`):** Under `readLock`, a defensive copy of the active matches is extracted into a list. The `readLock` is released **immediately** after copying. Sorting ($O(N \log N)$) and wrapping into `List.copyOf` happen outside the lock. This keeps sorting from blocking incoming write operations.
 
 ### 2. Defensive Integer Overflow Protection
 Sorting matches by total score (`homeScore + awayScore`) descending can wrap around to negative numbers if `int` values are large (e.g., `Integer.MAX_VALUE`). The comparator explicitly converts scores to `long` before addition:
@@ -83,6 +100,10 @@ public class Main {
         scoreboard.updateScore(mexicoCanada.id(), 0, 5);
         scoreboard.updateScore(spainBrazil.id(), 10, 2);
         scoreboard.updateScore(germanyFrance.id(), 2, 2);
+
+        // Look up a single active match by id (empty when unknown or already finished)
+        scoreboard.getMatch(mexicoCanada.id()).ifPresent(m ->
+            System.out.printf("Lookup: %s %d - %d %s%n", m.homeTeam(), m.homeScore(), m.awayScore(), m.awayTeam()));
 
         // Get live summary (Ordered by total score DESC, recency DESC)
         List<Match> summary = scoreboard.summary();
