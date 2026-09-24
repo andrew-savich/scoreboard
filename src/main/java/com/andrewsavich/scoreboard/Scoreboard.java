@@ -1,6 +1,7 @@
 package com.andrewsavich.scoreboard;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -44,6 +45,19 @@ public interface Scoreboard {
      * @throws IllegalStateException if no active match has the given identifier
      */
     Match finishMatch(UUID matchId);
+
+    /**
+     * Returns the active match with the given identifier.
+     *
+     * <p>The returned snapshot is a point-in-time view: a concurrent update or {@link #finishMatch(UUID)} may
+     * supersede it immediately after the call returns.
+     *
+     * @param id identifier of the match
+     * @return the active match, or an empty {@code Optional} when the identifier was never started or its match
+     *         has already been finished
+     * @throws NullPointerException if {@code id} is null
+     */
+    Optional<Match> getMatch(UUID id);
 
     /**
      * Returns the active matches ordered by total score descending; among equal totals, the most recently

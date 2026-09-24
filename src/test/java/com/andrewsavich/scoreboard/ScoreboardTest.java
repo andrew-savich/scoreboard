@@ -221,4 +221,96 @@ class ScoreboardTest {
 
         assertThat(snapshot).extracting(Match::homeScore).containsExactly(1);
     }
-}
+
+    @Test
+    void getMatchReturnsStartedMatch() {
+        Match started = scoreboard.startMatch("Argentina", "Brazil");
+
+        assertThat(scoreboard.getMatch(started.id())).contains(started);
+    }
+
+    @Test
+    void getMatchReflectsUpdatedScore() {
+        Match started = scoreboard.startMatch("Argentina", "Brazil");
+        scoreboard.updateScore(started.id(), 3, 1);
+
+        Match found = scoreboard.getMatch(started.id()).orElseThrow();
+
+        assertThat(found.homeScore()).isEqualTo(3);
+        assertThat(found.awayScore()).isEqualTo(1);
+        assertThat(found.id()).isEqualTo(started.id());
+        assertThat(found.homeTeam()).isEqualTo("Argentina");
+        assertThat(found.awayTeam()).isEqualTo("Brazil");
+        assertThat(found.sequence()).isEqualTo(started.sequence());
+    }
+
+    @Test
+    void getMatchWithUnknownIdReturnsEmpty() {
+        scoreboard.startMatch("Argentina", "Brazil");
+
+        assertThat(scoreboard.getMatch(UUID.randomUUID())).isEmpty();
+    }
+
+    @Test
+    void getMatchOfFinishedMatchReturnsEmpty() {
+        Match finished = scoreboard.startMatch("Argentina", "Brazil");
+        Match live = scoreboard.startMatch("Germany", "France");
+        scoreboard.finishMatch(finished.id());
+
+        assertThat(scoreboard.getMatch(finished.id())).isEmpty();
+        assertThat(scoreboard.getMatch(live.id())).contains(live);
+    }
+
+    @Test
+    void getMatchResolvesSameFixtureInstancesIndependently() {
+        Match first = scoreboard.startMatch("Argentina", "Brazil");
+        Match second = scoreboard.startMatch("Argentina", "Brazil");
+        scoreboard.updateScore(first.id(), 5, 0);
+        scoreboard.updateScore(second.id(), 0, 1);
+
+        Match firstFound = scoreboard.getMatch(first.id()).orElseThrow();
+        Match secondFound = scoreboard.getMatch(second.id()).orElseThrow();
+
+        assertThat(firstFound.homeScore()).isEqualTo(5);
+        assertThat(firstFound.awayScore()).isZero();
+        assertThat(secondFound.homeScore()).isZero();
+        assertThat(secondFound.awayScore()).isEqualTo(1);
+        assertThat(firstFound.sequence()).isNotEqualTo(secondFound.sequence());
+    }
+
+    @Test
+    void getMatchWithNullIdThrowsNullPointerException() {
+        Match started = scoreboard.startMatch("Argentina", "Brazil");
+
+        assertThatThrownBy(() -> scoreboard.getMatch(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("id");
+
+        assertThat(scoreboard.getMatch(started.id())).contains(started);
+    }
+
+    @Test
+    void getMatchReturnsSnapshotUnaffectedByLaterUpdates() {
+        Match started = scoreboard.startMatch("Argentina", "Brazil");
+        scoreboard.updateScore(started.id(), 1, 0);
+
+        Match snapshot = scoreboard.getMatch(started.id()).orElseThrow();
+
+        scoreboard.updateScore(started.id(), 3, 3);
+
+        assertThat(snapshot.homeScore()).isEqualTo(1);
+        assertThat(snapshot.awayScore()).isZero();
+        assertThat(scoreboard.getMatch(started.id()).orElseThrow().homeScore()).isEqualTo(3);
+    }
+
+    @Test
+    void getMatchDoesNotAffectSummary() {
+        Match first = scoreboard.startMatch("Argentina", "Brazil");
+        Match second = scoreboard.startMatch("Germany", "France");
+        scoreboard.updateScore(second.id(), 2, 1);
+
+        scoreboard.getMatch(first.id());
+        scoreboard.getMatch(UUID.randomUUID());
+
+        assertThat(scoreboard.summary()).extracting(Match::id).containsExactly(second.id(), first.id());
+    }}
