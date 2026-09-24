@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -79,6 +80,17 @@ public final class InMemoryScoreboard implements Scoreboard {
             return removedMatch;
         } finally {
             lock.writeLock().unlock();
+        }
+    }
+
+    @Override
+    public Optional<Match> getMatch(UUID id) {
+        Objects.requireNonNull(id, "id");
+        lock.readLock().lock();
+        try {
+            return Optional.ofNullable(matches.get(id));
+        } finally {
+            lock.readLock().unlock();
         }
     }
 
